@@ -1,5 +1,15 @@
+# ==========================================
+# Company: 0DLLC
+# Script: DNS TXT Flag Resolver
+# Author: 0DLLC
+# Version: 1.0
+# Description:
+# Resolves DNS TXT records using system DNS,
+# extracts the first integer as a flag,
+# supports optional registry write and quiet mode.
+# ==========================================
+
 param(
-    [switch]$UseDoH,
     [int]$Default = 0,
     [switch]$SetRegistry,
     [switch]$Quiet
@@ -16,51 +26,19 @@ function To-Array {
 }
 
 # ==========================================
-# DNS over HTTPS (Cloudflare JSON API)
-# ==========================================
-function Get-TxtFromDoH {
-    param([string]$Name)
-
-    try {
-        $uri = "https://cloudflare-dns.com/dns-query?name=$Name&type=TXT"
-
-        $headers = @{
-            Accept = "application/dns-json"
-        }
-
-        $response = Invoke-RestMethod -Uri $uri -Headers $headers -Method Get -ErrorAction Stop
-
-        if ($response.Answer) {
-            $txt = $response.Answer |
-                Where-Object { $_.type -eq 16 } |
-                ForEach-Object { $_.data.Trim('"') }
-
-            return To-Array $txt
-        }
-    }
-    catch {
-        if (-not $Quiet) {
-            Write-Warning "DoH query failed: $($_.Exception.Message)"
-        }
-    }
-
-    return $null
-}
-
-# ==========================================
-# Pure .NET DNS TXT Query (No nslookup)
+# System DNS TXT Query (Cross-Platform)
 # ==========================================
 function Get-TxtFromSystemDNS {
     param([string]$Name)
 
     try {
-        # Use Resolve-DnsName if Windows
+        # Windows: Resolve-DnsName
         if ($IsWindows -and (Get-Command Resolve-DnsName -ErrorAction SilentlyContinue)) {
             $records = Resolve-DnsName -Name $Name -Type TXT -ErrorAction Stop
             return To-Array ($records.Strings)
         }
 
-        # Cross-platform fallback using dig if available
+        # macOS / Linux: dig fallback
         if (Get-Command dig -ErrorAction SilentlyContinue) {
             $result = dig +short TXT $Name
             if ($result) {
@@ -127,7 +105,7 @@ function Set-FlagRegistry {
 # Main Loop
 # ==========================================
 
-Write-Host "DNS TXT Flag Resolver"
+Write-Host "DNS TXT Flag Resolver (System DNS Only)"
 Write-Host "Running on: $([System.Runtime.InteropServices.RuntimeInformation]::OSDescription)"
 Write-Host ""
 
@@ -138,17 +116,11 @@ while ($true) {
 
     $domain = $input.Trim()
 
-    # Query
-    if ($UseDoH) {
-        $txtRecords = Get-TxtFromDoH $domain
-        $source = "DNS-over-HTTPS (Cloudflare)"
-    }
-    else {
-        $txtRecords = Get-TxtFromSystemDNS $domain
-        $source = "System DNS"
-    }
+    # Query system DNS only
+    $txtRecords = Get-TxtFromSystemDNS $domain
+    $source = "System DNS"
 
-    # Normalize type
+    # Normalize
     $txtRecords = To-Array $txtRecords
 
     # Parse flag
